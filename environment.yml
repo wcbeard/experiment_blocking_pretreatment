@@ -4,7 +4,7 @@ name: ros
 #  - conda-forge
 #  - pytorch
 dependencies:
-- python=3
+- python=3.7
 
 # Bare necessities
 - flake8
@@ -77,14 +77,8 @@ dependencies:
 
   # Scipy
   - arviz
-  - plotnine
-  - probscale
   - feather-format
   - tqdm
-
-  # Data
-  - google-cloud-bigquery
-  - pandas-gbq
 
 # jupyter contrib nbextension install --user --skip-running-check
 # jt -t grade3 -cellw '100%'

@@ -1,0 +1,5 @@
+#!/bin/sh
+# docker run -p 8888:8888 -it ros /bin/bash
+docker run -p 8888:8888  -v ~/Dropbox/ws/data/ros:/home/jovyan/ros -it ros /bin/bash
+
+#

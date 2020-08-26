@@ -1,0 +1,9 @@
+name: ros
+# channels:
+#  - defaults
+#  - conda-forge
+#  - pytorch
+dependencies:
+- r-base #==3.5.3
+- r-brms #==2.12.0
+- r-rstanarm
