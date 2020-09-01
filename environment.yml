@@ -44,6 +44,10 @@ dependencies:
 - pip
 #- pymc3
 - pip:
+  - bambi
+  - dscontrib==20200728134544
+  - arviz
+
   # IDE tools
   - autopep8
   - black
@@ -76,8 +80,6 @@ dependencies:
   - feather-format
 
   # Scipy
-  - arviz
-  - feather-format
   - tqdm
 
 # jupyter contrib nbextension install --user --skip-running-check
