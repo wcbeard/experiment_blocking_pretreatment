@@ -1,0 +1,13 @@
+name: ros
+dependencies:
+- python=3.7
+
+- pymc3
+- mkl
+
+- pip
+- pip:
+  - bambi
+  - dscontrib==20200728134544
+  - arviz
+

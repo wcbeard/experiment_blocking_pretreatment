@@ -27,7 +27,7 @@ def samp_probs(df, gb, col, quants=[50, 95]):
     return df.groupby(gb)[col].quantile([p2a, p1a, 0.5, p1b, p2b]).unstack()
 
 
-def plot_probs(pdf, reverse=False):
+def plot_probs(pdf, reverse=False, label='ix'):
     """
     Take a df with quantile columns, iterate over rows and plot
     quantiles with different thickness:
@@ -48,12 +48,12 @@ def plot_probs(pdf, reverse=False):
 
         i_vals.append(i)
         q1a, q2a, mid, q2b, q1b = row
-        plt.plot([q1a, q1b], [i, i], "k", linewidth=1, label="ix")
+        plt.plot([q1a, q1b], [i, i], "k", linewidth=1, label=label)
         plt.plot([q2a, q2b], [i, i], "k", linewidth=3)
         plt.plot(mid, i, "ok")
     plt.yticks(i_vals, ix_labels)
 
 
-def plot_groupby(df, gb, col, quants=[50, 95], reverse=True):
+def plot_groupby(df, gb, col, quants=[50, 95], reverse=True, label='ix'):
     pdf = samp_probs(df, gb, col, quants=quants)
-    return plot_probs(pdf, reverse=reverse)
+    return plot_probs(pdf, reverse=reverse, label=label)
