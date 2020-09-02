@@ -6,5 +6,6 @@ ros
 Convert to html with
 
 ```sh
-jupyter-nbconvert --to html --template output_toggle_html.tpl --output test.html timing-example.ipynb
+cd notebooks
+./render.sh output_toggle_html.tpl
 ```

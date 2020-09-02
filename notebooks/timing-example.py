@@ -26,6 +26,7 @@ import itertools as it
 import operator
 
 import altair as A
+import dscontrib.wbeard as wb
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.random as nr
@@ -149,56 +150,47 @@ df = create_test_pop()
 dfs = stack_pre_post(df.drop(["lpre", "lpost"], axis=1)).assign(
     branch=lambda df: df.treat.map(treat_i2name)
 )
-print(len(df))
 df.drop_duplicates("win7")
 # -
 
 dfs[:3]
 
 # +
-import dscontrib.wbeard as wb
+# collapse_hide
 axs, spi = wb.plot_utils.mk_sublots(nrows=1, ncols=2, figsize=(16, 5), sharex=False)
 
-
-
-for pre, pdf in dfs.groupby('pre'):
+for pre, pdf in dfs.groupby("pre"):
     spi.n
-    plt.title(['Pre-enrollment', 'Post-enrollment'][pre])
-    for branch, bdf in pdf.groupby('branch'):
+    plt.title(["Pre-enrollment", "Post-enrollment"][pre])
+    for branch, bdf in pdf.groupby("branch"):
         lbins = np.logspace(0, np.log(bdf.y.max()), 100)
-        plt.hist(bdf.y, bins=lbins, density=1, alpha=.5, label=branch)
-    
+        plt.hist(bdf.y, bins=lbins, density=1, alpha=0.5, label=branch)
+
     plt.legend()
     plt.xscale("log")
-    
+
     if not pre:
         plt.ylabel("Density")
     plt.xlabel("Simulated first paint (ms)")
-    
-
 # -
 
 # - control: no difference pre/post
 # - for the treatment groups post is slightly larger than pre
 
-# +
-# (dfs.y < 10_000).mean()
-# -
-
+# collapse_hide
 plu.plot_groupby(dfs, 'demo2', 'y', quants=[50, 95])
 plt.xscale('log')
 
 # # Difference in means
 
-np.log(.9)
-
+# collapse_hide
 dfs_pre = dfs.query("pre == 1")
 dfs_pre.groupby("branch").y.mean()
 
-len(dfs)
-
-
 # +
+# collapse_hide
+
+
 def bootstrap_stat_diff(
     df, gbcol, ycol, stat_fn=np.mean, n_reps=10_000, comp=operator.sub
 ):
@@ -223,47 +215,44 @@ def bootstrap_stat_diff(
 def uplift(a, b):
     return a / b - 1
 
+
 def plot_bs(diffs, log=False, title=None, pe=1, ax=None):
     diffs_p = plot_wrap(diffs)
-    plu.plot_groupby(diffs_p, 'g', 'y', )
-    plt.yticks([0], ['Pre-enrollment' if pe else ''])
+    plu.plot_groupby(
+        diffs_p,
+        "g",
+        "y",
+    )
+    plt.yticks([0], ["Pre-enrollment" if pe else ""])
     if log:
-        plt.xscale('log')
+        plt.xscale("log")
     plt.title(title)
 
+
 dfs_post = dfs.query("pre == 0").assign(yl=lambda df: df.y.pipe(np.log))
-# -
+
+# +
+# collapse_hide
 
 diffs = bootstrap_stat_diff(dfs_post, "treat", "y")
 diffs_out_rm = bootstrap_stat_diff(dfs_post.pipe(drop_outliers), "treat", "y")
 diffs_log = bootstrap_stat_diff(dfs_post, "treat", "yl")
 diffs_gmean = bootstrap_stat_diff(dfs_post, "treat", "y", stat_fn=st.gmean)
 ul_out_rm = bootstrap_stat_diff(dfs_post.pipe(drop_outliers), 'treat', 'y', comp=uplift)
-
-
-# +
-def hack_gmean(yl):
-    lgmean = np.mean(yl)
-    return np.exp(lgmean)
-
-diffs_gmean_hack = bootstrap_stat_diff(dfs_post, "treat", "yl", stat_fn=hack_gmean)
-
-# -
-
 ul = bootstrap_stat_diff(dfs_post, 'treat', 'y', comp=uplift)
 
 # +
-# ul_out_rm_ = plot_wrap(ul_out_rm)
-
-# +
+# hide_input
 axs, spi = wb.plot_utils.mk_sublots(nrows=1, ncols=2, figsize=(16, 5), sharex=False)
 
 plot_bs(diffs, log=1, title='Difference in means', ax=spi.n)
 plot_bs(ul * 100, log=0, title='% Increase in treatment', pe=0, ax=spi.n)
 # -
 
+# hide_input
 dfs_post.sort_values('y', ascending=False)[:5][['branch', 'y']][::-1].reset_index(drop=1)
 
+# collapse_hide
 dfs_post.query("yl > 16")[['branch', 'y']].sort_values('y', ascending=True).reset_index(drop=1)
 
 # +
