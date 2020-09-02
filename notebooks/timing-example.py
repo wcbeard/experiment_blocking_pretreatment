@@ -13,6 +13,7 @@
 # ---
 
 # +
+# remove_cell
 import sys
 sys.path.insert(0, '/home/jovyan/ros/')
 
@@ -20,6 +21,7 @@ sys.path.insert(0, '/home/jovyan/ros/')
 # %autoreload 2
 
 # +
+# remove_cell 
 import itertools as it
 import operator
 
@@ -43,27 +45,12 @@ import dscontrib.wbeard as wb
 str_concat = z.compose("-".join, z.map(str))
 lmap = z.comp(list, map)
 plt.rcParams["font.size"] = 17
-
-
 # -
 
 # # Build dataset
 
 # +
-@njit
-def _gen_pre_post(win7, win7_fact, treat, treat_fact, treat_std=.15, exp=True):
-    pre = nr.gamma(4 + win7_fact * win7)
-    post = pre + nr.randn() * treat_std + (treat_fact * treat)
-    if exp:
-        return np.exp(pre), np.exp(post)
-    return pre, post
-
-del _gen_pre_post
-# -
-
-# ### With Numba
-
-# +
+# collapse_hide
 WIN7_FACT = 1.2
 TREAT_MU = np.log(.9)
 TREAT_SD = .15
@@ -91,6 +78,7 @@ def gen_log_first_paint_pre_post(win7, treat, size=1):
 # \end{align}
 
 # +
+# collapse_hide
 n_each = 10_000
 n_win_7 = {0: n_each, 1: n_each}
 seed(0)
