@@ -4,6 +4,7 @@ dependencies:
 
 - pymc3
 - mkl
+- mkl-service
 
 - pip
 - pip:

@@ -21,11 +21,14 @@ sys.path.insert(0, '/home/jovyan/ros/')
 # %autoreload 2
 
 # +
-# remove_cell 
+# remove_cell
 import itertools as it
+import logging
 import operator
 
 import altair as A
+import arviz as az
+from bambi import Model
 import dscontrib.wbeard as wb
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,24 +39,31 @@ from numba import njit
 import toolz.curried as z
 import seaborn as sns
 
+from ros.utils.common import hstack, vstack, plot_wrap, drop_outliers, disable_logging
+from ros.utils import bootstrap as bs, plot as plu
 
-from ros.utils.common import hstack, vstack, plot_wrap, drop_outliers
-from ros.utils import plot as plu
-from ros.utils import bootstrap as bs
-
-import dscontrib.wbeard as wb
+disable_logging(["numba", "arviz", "pymc3", "bambi", "numexpr"])  # 
 
 str_concat = z.compose("-".join, z.map(str))
 lmap = z.comp(list, map)
 plt.rcParams["font.size"] = 17
+
+p = lambda: None
+p.__dict__.update(
+    dict(
+        zip(
+            "hide_output hide_input collapse_hide collapse_show remove_cell".split(),
+            range(10),
+        )
+    )
+)
 
 
 # -
 
 # There's an interplay between sample size, effect size, and the sensitivity of an experiment to detect changes that we spend time thinking about at Mozilla. All else equal, it's usually preferable to enroll a smaller sample size so long as it's sufficient to pick up the signal of the treatment. Among other reasons, this helps reduce the likelihood of different experiments interacting with each other. But there are ways to increase the resolution of experimental analysis without having to increase the population size, and this efficient frontier is a good place to aim for.
 #
-# Some techniques I've tried lately are using blocking and pre-treatment predictors as useful ways to get more precise estimates for free, without the need of a larger study population. This post simulates experimental data to demonstrate the improvement in precision that you can get with these. 
-#
+# Some techniques I've tried lately are using [blocking](https://en.wikipedia.org/wiki/Blocking_(statistics)) and pre-treatment predictors as useful ways to get more precise estimates for free, without the need of a larger study population. This post simulates experimental data to demonstrate the improvement in precision that you can get with these. 
 
 # ## The Setup
 #
@@ -63,7 +73,7 @@ plt.rcParams["font.size"] = 17
 # Intuitively, if the 2 groups have significantly different outcomes even before the treatment is applied, this difference will contribute to a higher variance in the estimate when it comes time to measure the size of the treatment effect. The variable that determines the grouping needs to be independent of the treatment assignment, so using Windows 7 as a blocking factor would be a good choice, as our feature doesn't do anything preposterous like upgrade the OS once the client enrolls.
 #
 # The second idea is to use pre-treatment variables as a predictor. In this case, it involves looking at the startup time before enrollment, and seeing how much this changes on average for the treatment group once they get the feature. This works if a 
-# client's pre-treatment startup time $t{pre}$ is more informative of the post-treatment startup time $t_{post}$ than merely knowing the OS version, and it's safe to assume here that $t_{post}$ and the OS are conditionally independent given $t_{pre}$. 
+# client's pre-treatment startup time $t_{pre}$ is more informative of the post-treatment startup time $t_{post}$ than merely knowing the OS version, and it's safe to assume here that $t_{post}$ and the OS are conditionally independent given $t_{pre}$. 
 #
 # As with many metrics we use, the log of the startup time more closely follows the distributions we're used to. For this simulation we'll set the log of the first_paint time to follow a gamma distribution, with the mean time increased for Windows 7 users.[2] For users in the treatment group, we'll add a noisy log(.9)  (=-.105) to the distribution, which translates to roughly a 10% decrease in startup times on the linear scale.[3] After the simulation, we'll look at how much of an improvement you get with the estimates when using a randomized block design. The formulas describing the simulation are
 #
@@ -184,7 +194,7 @@ dfs.sample(frac=1, random_state=0).drop_duplicates(["win7", "treat", "pre"]).dro
     ["demo", "win7", 'treat', 'demo2'], axis=1
 ).reset_index(drop=1)[:6]
 
-# and can be split into 4 groups based on the OS version (win7 or win10) and study branch (`treat` or `control`). Each client (identified by an integer id value) has a measurement before and after enrolling into the experiment, denoted by a binary flag in the pre column. This pre- and post-measurement will help get more a more sensitive estimate of the treatment effect. 
+# and can be split into 4 groups based on the OS version (`win7` or `win10`) and study branch (`treat` or`control`). Each client (identified by an integer `id` value) has a measurement before and after enrolling into the experiment, denoted by a binary flag in the `pre` column. This pre- and post-measurement will help get more a more sensitive estimate of the treatment effect. 
 #
 # The following histograms show the distributions for pre- and post-enrollment measurements:
 
@@ -207,7 +217,7 @@ for pre, pdf in dfs.groupby("pre"):
     plt.xlabel("Simulated first paint (ms)")
 # -
 
-# These are mostly overlapping, and show roughly gamma distributed times on the log scale. Notice that while most of the density is less than $10^4=10,000$ ms (96% to be more precise), the scale extends to around $10^{19}$, indicating some serious outliers.
+# These are mostly overlapping, and show roughly gamma distributed times on the log scale. Notice that while most of the density is less than $10^4=10,000$ ms (~96% to be more precise), the scale extends to around $10^{19}$, indicating some serious outliers.
 #
 # The plot below shows the quantile ranges covering the middle 50% (thick lines) and middle 95% (thin lines) of times, with the median represented with the dot for the different slices of data.
 
@@ -215,9 +225,9 @@ for pre, pdf in dfs.groupby("pre"):
 plu.plot_groupby(dfs, 'demo2', 'y', quants=[50, 95])
 plt.xscale('log')
 
-# This plot gives a finer view of the difference between the distributions. Each pair for the control branch (the first four lines) should have identical values, but for the treatment groups, the post measurements should be slightly less than the post measurements. Note that the Windows 7 distributions are significantly longer, and that this difference in OS times is larger than the difference in treatment.
+# This plot gives a finer view of the difference between the distributions. Each pair for the control branch (the first four lines) should have identical values, but for the treatment groups, the `post` measurements should be slightly less than the `post` measurements. Note that the Windows 7 distributions are significantly longer, and that this difference in OS times is larger than the difference in treatment.
 
-# # Difference in means
+# ## Difference in means
 
 # remove_cell
 dfs_pre = dfs.query("pre == 1")
@@ -260,7 +270,7 @@ def plot_bs(diffs, log=False, title=None, pe=1, ax=None):
         "g",
         "y",
     )
-    plt.yticks([0], ["Pre-enrollment" if pe else ""])
+    plt.yticks([0], ["Post-enrollment" if pe else ""])
     if log:
         plt.xscale("log")
     plt.title(title)
@@ -283,10 +293,11 @@ ul = bootstrap_stat_diff(dfs_post, 'treat', 'y', comp=uplift)
 
 # +
 # hide_input
-axs, spi = wb.plot_utils.mk_sublots(nrows=1, ncols=2, figsize=(16, 5), sharex=False)
+axs, spi = wb.plot_utils.mk_sublots(nrows=2, ncols=1, figsize=(8, 8), sharex=False)
 
 plot_bs(diffs, log=1, title='Difference in means', ax=spi.n)
-plot_bs(ul * 100, log=0, title='% Increase in treatment', pe=0, ax=spi.n)
+plot_bs(ul * 100, log=0, title='% Increase in treatment', pe=1, ax=spi.n)
+plt.tight_layout()
 # -
 
 # Instead of showing a _decrease_ in times from the treatment group, these estimates show an _increase_ in the times. And an increase on the order of 200%! This goes back to the histograms above that showed outliers way higher than the median time. These bootstrapped estimates above are essentially dominated by a handful of outliers; the top 5 are all from the treatment group:
@@ -294,69 +305,54 @@ plot_bs(ul * 100, log=0, title='% Increase in treatment', pe=0, ax=spi.n)
 # hide_input
 dfs_post.sort_values('y', ascending=False)[:5][['branch', 'y']][::-1].reset_index(drop=1)
 
-# collapse_hide
-dfs_post.query("yl > 16")[['branch', 'y']].sort_values('y', ascending=True).reset_index(drop=1)
+# When the outliers (arbitrarily chosen to be the top .01%) are removed, the estimates look a bit more sane:
 
 # +
-axs, spi = wb.plot_utils.mk_sublots(nrows=1, ncols=2, figsize=(16, 5))
+# hide_input
+axs, spi = wb.plot_utils.mk_sublots(nrows=2, ncols=1, figsize=(8, 10))
 
 plot_bs(diffs_out_rm, log=0, title='Difference in means', pe=0, ax=spi.n)
 
 plot_bs(ul_out_rm, log=0, title='% Increase in treatment', pe=0, ax=spi.n)
 plt.suptitle("Outliers removed");
+# plt.tight_layout();
 # -
 
-plot_bs(diffs_log, log=0, title='Diffs log')
+# In fact, the ~10% decrease we programmed into the simulation is now showing up as a plausible value in the plot below, but these estimates also give a relatively high likelihood of there being no effect (that is, 0 is within the 50% CI).
+#
+# Taking the log and bootstrapping those means, however, similarly allows for a 10% decrease in startup times, but this time rules out a positive effect:
+
+plot_bs(diffs_log, log=0, title='Difference in mean of log(startup time)', pe=0)
+
+# Note that this is very similar to taking the geometric mean (after taking the mean of the log, you'd just need to exponentiate the result), which I often prefer as a more robust statistic on this kind of data, for exactly this reason.
+
+# ## Linear regression as a difference in means
 
 # +
-axs, spi = wb.plot_utils.mk_sublots(nrows=3, ncols=2, figsize=(16, 15))
-
-spi.n
-plot_bs(diffs, log=1, title='Difference in means')
-
-spi.n
-plot_bs(diffs_out_rm, log=0, title='Mean diff, outlier rm', pe=0)
-
-spi.n
-plot_bs(diffs_log, log=0, title='Diffs log')
-
-spi.n
-plot_bs(np.exp(diffs_log), log=0, title='Diffs log exp', pe=0)
-
-spi.n
-plot_bs(diffs_gmean, log=0, title='Diffs gmean', pe=0)
-
-spi.n
-plot_bs(ul_out_rm, log=0, title='Uplift, outlier rm', pe=0)
-
-plt.tight_layout()
-# -
-
-dfs_pre.assign(
-    yl=lambda df: df.y.pipe(np.log)
-).groupby("treatn").yl.mean()
-
-# Top .01%
-
-# ## As linear regression
-
-# +
-from bambi import Model
-import arviz as az
+# remove_cell
+fit_kwa = dict(samples=1000, chains=4, backend='pymc3', cores=4, target_accept=.8)
 
 data = dfs.assign(yl=lambda df: df.y.pipe(np.log))
+
+
 # -
 
-data[:3]
+# Another way to accomplish the difference in means from above is with Bayesian linear regression. I'm using [Bambi](https://github.com/bambinos/bambi) with [pymc3](https://github.com/pymc-devs/pymc3/) for easy integration with python, and we'll be operating on the log from here on out due to the stability issues shown above. Bambi allow r-like formula syntax, and we can start off with the simplest regression: `log(y) ~ treat`, where `treat` is 1 for clients in the treatment group and 0 otherwise. When run on the post-enrollment data, the coefficient for `treat` gives a similar estimate as the bootstrapped mean does:
 
-mod = Model(data.query("pre == 0").copy())
+# collapse_show
+def fit_regression(df):
+    return Model(df).fit("yl ~ treat", **fit_kwa)
 
-fit = mod.fit("yl ~ treat", samples=1000, chains=4, target_accept=.8)
 
+# remove_cell
+fit = fit_regression(data.query("pre == 0").copy())
+
+# +
+# hide_input
 posterior_treatment = plot_wrap(fit.posterior.treat.values.ravel())
 
 post_plus_boot = vstack([
-    plot_wrap(diffs_log).assign(g='bootstrapped_mean'),
+    plot_wrap(diffs_log).assign(g='bootstrapped mean'),
     posterior_treatment.assign(g='linear model posterior')
 ])
 
@@ -364,22 +360,38 @@ plu.plot_groupby(post_plus_boot, 'g', 'y')
 yo, yi = plt.ylim()
 plt.vlines([TREAT_MU, TREAT_MU], yo, yi, linestyles='dashed');
 
-# # Blocking
 
-df.groupby(['os', 'treat']).post.median().unstack()
+# -
 
-df_pre_post = df.assign(pre_l=lambda df: df.pre.pipe(np.log), post_l=lambda df: df.post.pipe(np.log))
-mod_block = Model(df_pre_post.copy())
+# I hadn't realized this, but it makes sense in hindsight; if the value of the indicator variable is 1, then the slope (aka the coefficient) is going to be equivalent to the mean of the difference between the two groups.
 
-fit_block = mod_block.fit("post_l ~ treat + win7", samples=1000, chains=4, backend='pymc3')
+# ## Regression with Blocking and baseline
 
-posterior_treatment_block = plot_wrap(fit_block.posterior.treat.values.ravel())
-
-fit_block_baseline = mod_block.fit("post_l ~ pre_l + treat + win7", samples=1000, chains=4)
-
-posterior_treatment_block_bl = plot_wrap(fit_block_baseline.posterior.treat.values.ravel())
+# Now we get what we came here for. The model to use OS version as a blocking variable will be `log(y) ~ treat + win7`, and the formula that adds pretreatment will be `log(y_post) ~ log(y_pre) + treat + win7`. 
 
 # +
+def fit_block_regression(df):
+    return Model(df.copy()).fit("log_post_startup ~ treat + win7", **fit_kwa)
+
+def fit_block_baseline_regression(df):
+    return Model(df.copy()).fit("log_post_startup ~ log_baseline_startup + treat + win7", **fit_kwa)
+
+
+# -
+
+# remove_cell
+df_pre_post = df.assign(log_baseline_startup=lambda df: df.pre.pipe(np.log), log_post_startup=lambda df: df.post.pipe(np.log))
+fit_block = fit_block_regression(df_pre_post)
+posterior_treatment_block = plot_wrap(fit_block.posterior.treat.values.ravel())
+
+# remove_cell
+fit_block_baseline = fit_block_baseline_regression(df_pre_post)
+posterior_treatment_block_bl = plot_wrap(fit_block_baseline.posterior.treat.values.ravel())
+
+# The estimated treatment effects of all the models run so far are below. The model with blocking shows only a slight improvement; the extent of the 95% credible interval is slightly, but visibly less than those of the previous models, and the median estimate moved a tiny bit toward the true effect (shown with the dashed line).
+
+# +
+# hide_input
 plt.figure(figsize=(12, 5))
 post_boot_block = vstack([
     posterior_treatment.assign(g='2- linear model posterior'),
@@ -394,121 +406,18 @@ plt.vlines([TREAT_MU, TREAT_MU], yo, yi, linestyles='dashed', label='true effect
 plt.legend();
 # -
 
-# 'pre_l',  'win7'
-az.plot_forest(fit_block, var_names=['treat', ], combined=True)
+# But the real difference was when the pre-treatment effects were included. The estimate with the baseline predictor honed right in on the true effect, and the credible intervals tightened to a fraction of what the raw log mean estimates would have been. In this case, the baseline measurements increased both the accuracy and precision of the estimate remarkably.
 
-TREAT_FACT
-
-az.summary(fit_block)
-
-df_pre_post[:3]
-
-df_pre_post[:3]
-
-data[:3]
-
-# # Plots
-
-# +
-import dscontrib.wbeard as wb
-axs, spi = wb.plot_utils.mk_sublots(nrows=1, ncols=2, figsize=(16, 5))
-
-spi.n
-df = create_test_pop(5000)
-plu.plot_groupby(df, 'os', 'pre')
-plt.xscale('log')
-
-spi.n
-df = create_test_pop(5000)
-plu.plot_groupby(df, 'os', 'pre')
-plt.xscale('log')
+# ## Summary and Caveats
+#
+# This post hopefully makes clear the benefits of including the baseline measure, but a contrived example like this requires some caveats. Two major ones to be mindful of are the magnitude and consistency of the effect size across variables.  A 10% effect size is very large among the experimental results I've seen, so this example isn't representative in that respect (though this may highlight the importance of including baseline measurements!). I also added a constant 10% improvement to all clients in the treatment branch, regardless of their baseline measurement. From the actual data I've seen, though, the effect is very non-linear, partly due to a regression to the mean effect, and partly due to other factors.
+#
+# Nevertheless, including the baseline measurement enables more precise estimates, especially when there's an imbalance in the experiment branches. If there had been more Windows 7 users in the treatment branch through some fluke of randomization, then a naive comparison of the means could underestimate the effect size if baselines aren't taken into account.
+#
+# ### TLDR highlights
+#
+# - When working with data that appears to be log-distributed, looking at the difference in mean can give you noisy results
+# - When comparing 2 groups, modeling a group using an indicator variable as a linear predictor is equivalent to modeling the difference in means of the group
+# - Block variables and baseline measurements are a good way to improve the estimates of the effect of a treatment 
 
 
-# +
-def mk_bootstrap_df(bs_dct, n_reps=1_000):
-    dfs = [
-        pd.DataFrame({'y': bs.draw_replicates(n_reps)}).assign(g=k)
-        for k, bs in bs_dct.items()
-    ]
-    df = pd.concat(dfs)
-    return df
-
-means_ = {
-    k: wb.bootstrap.BootstrapStat(gdf.pre, stat=np.mean)
-    for k, gdf in df.groupby('os')
-}
-mean_draws = mk_bootstrap_df(means_, n_reps=10_000)
-# -
-
-plu.plot_groupby(mean_draws, 'g', 'y', quants=[50, 95])
-plt.xscale('log')
-
-df[:3]
-
-# +
-
-df = create_test_pop(5000)
-
-plot_groupby(df.assign(os=lambda df: df.win7.map({0: 'win10', 1: 'win7'})), 'os', 'pre')
-
-plt.xscale('log')
-
-# +
-
-        
-plot_probs(sp)
-# -
-
-
-
-df.groupby(['win7'])[['pre', 'treat']].quantile([.025, .25, .75, .975]).unstack()
-# .T.unstack()
-
-df.groupby('win7').pre.mean()
-
-# +
-
-for win7, gdf in df.groupby('win7'):
-    1
-    
-del win7
-# -
-
-win7_factor = 1.2
-
-# +
-
-
-
-# -
-
-plt.plot(10 ** xs, ys)
-
-
-# # Junk
-
-# +
-def gen_times(win7):
-    times = st.gamma(4 + win7_factor * win7).rvs(len(gdf))
-    return times
-
-def gen_times_shape(gshape):
-    times = st.gamma(gshape).rvs(len(gdf))
-    return times
-
-# +
-
-
-def gamma_shape(win7):
-    return 4 + win7_factor * win7
-    
-def add_columns(df):
-    df['gshape'] = gamma_shape(df.win7)
-#     df['pre'] = df.groupby('win7').win7.transform(gen_times)
-    df['pre'] = df.groupby('win7').gshape.transform(gen_times_shape)
-    df['treat'] = df['pre'] + nr.randn(len(df)) * .25 + 1
-    return df
-
-df = pd.DataFrame(data_dct)
-df = df.pipe(add_columns)
-df.drop_duplicates()

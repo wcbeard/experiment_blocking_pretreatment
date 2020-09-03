@@ -72,3 +72,6 @@ target/
 # exclude data from source control by default
 notebooks/data/
 notebooks/altair/
+junk/
+notebooks/_includes
+notebooks/timing-example-copy.ipynb
